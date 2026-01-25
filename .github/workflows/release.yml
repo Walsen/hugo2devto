@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build action
+        run: npm run build
+      
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: |
+            ## Changes in this Release
+            
+            See [CHANGELOG.md](CHANGELOG.md) for details.
+            
+            ## Usage
+            
+            ```yaml
+            - uses: your-username/hugo-to-devto-action@${{ github.ref }}
+              with:
+                api-key: ${{ secrets.DEVTO_API_KEY }}
+                file-path: 'path/to/post.md'
+            ```
+          draft: false
+          prerelease: false

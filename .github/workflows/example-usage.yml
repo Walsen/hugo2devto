@@ -1,0 +1,30 @@
+name: Example - Publish on Push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'content/**/*.md'
+
+jobs:
+  publish-to-devto:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Get changed markdown files
+        id: changed-files
+        run: |
+          FILES=$(git diff --name-only HEAD^ HEAD | grep '\.md$' || true)
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+      
+      - name: Publish changed posts to Dev.to
+        if: steps.changed-files.outputs.files != ''
+        run: |
+          for file in ${{ steps.changed-files.outputs.files }}; do
+            echo "Publishing $file"
+            # Use the action for each file
+          done

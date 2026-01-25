@@ -1,0 +1,77 @@
+name: Publish to dev.to
+
+on:
+  workflow_dispatch:
+    inputs:
+      post_path:
+        description: 'Path to the post (e.g., content/en/posts/my-post.md)'
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - 'content/*/posts/*.md'
+
+jobs:
+  detect-changes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.changed-files.outputs.files }}
+      has-changes: ${{ steps.changed-files.outputs.has-changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Get changed files
+        id: changed-files
+        run: |
+          # Only publish English posts automatically
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep -E 'content/en/posts/.*\.md$' || echo "")
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "has-changes=false" >> $GITHUB_OUTPUT
+            echo "files=[]" >> $GITHUB_OUTPUT
+          else
+            echo "has-changes=true" >> $GITHUB_OUTPUT
+            # Convert to JSON array
+            FILES_JSON=$(echo "$CHANGED_FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "files=$FILES_JSON" >> $GITHUB_OUTPUT
+          fi
+
+  publish-changed:
+    needs: detect-changes
+    if: github.event_name == 'push' && needs.detect-changes.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        file: ${{ fromJson(needs.detect-changes.outputs.files) }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Publish ${{ matrix.file }} to Dev.to
+        uses: Walsen/hugo-to-devto-action@v1
+        with:
+          api-key: ${{ secrets.DEVTO_API_KEY }}
+          file-path: ${{ matrix.file }}
+          base-url: 'https://blog.walsen.website'
+
+  publish-manual:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Publish specific post to Dev.to
+        uses: Walsen/hugo-to-devto-action@v1
+        with:
+          api-key: ${{ secrets.DEVTO_API_KEY }}
+          file-path: ${{ github.event.inputs.post_path }}
+          base-url: 'https://blog.walsen.website'
+

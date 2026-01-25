@@ -1,0 +1,28 @@
+name: 'Hugo to Dev.to Publisher'
+description: 'Publish Hugo blog posts to dev.to with frontmatter support'
+author: 'Your Name'
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  api-key:
+    description: 'Dev.to API key (get from https://dev.to/settings/extensions)'
+    required: true
+  file-path:
+    description: 'Path to the markdown file to publish'
+    required: true
+  base-url:
+    description: 'Base URL for canonical links (default: https://blog.walsen.website)'
+    required: false
+    default: 'https://blog.walsen.website'
+
+outputs:
+  article-url:
+    description: 'URL of the published article on dev.to'
+  article-id:
+    description: 'ID of the published article on dev.to'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

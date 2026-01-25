@@ -1,0 +1,46 @@
+name: Test Action
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-file:
+        description: 'Path to test markdown file'
+        required: false
+        default: 'test/sample-post.md'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Only run if DEVTO_API_KEY is set
+    if: ${{ secrets.DEVTO_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create test markdown file
+        run: |
+          mkdir -p test
+          cat > test/sample-post.md << 'EOF'
+          ---
+          title: Test Post from GitHub Action
+          description: This is a test post published via GitHub Action
+          draft: true
+          tags: test, github-actions, automation
+          ---
+          
+          # Hello from GitHub Actions!
+          
+          This is a test post to verify the action works correctly.
+          
+          ## Features
+          
+          - Automatic publishing to dev.to
+          - Frontmatter support
+          - Canonical URL handling
+          EOF
+      
+      - name: Test action
+        uses: ./
+        with:
+          api-key: ${{ secrets.DEVTO_API_KEY }}
+          file-path: ${{ github.event.inputs.test-file || 'test/sample-post.md' }}
+          base-url: 'https://example.com'
