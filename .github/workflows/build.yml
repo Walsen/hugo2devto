@@ -58,7 +58,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ github.ref_name }}-${{ github.sha }}
+          name: dist-${{ github.run_id }}-${{ github.run_number }}
           path: dist/
           retention-days: 7
       
@@ -77,7 +77,7 @@ jobs:
               repo: context.repo.repo,
               body: `## ✅ Build Successful\n\n` +
                     `- **dist/index.js size:** ${size} KB\n` +
-                    `- **Artifact:** \`dist-${context.ref.replace('refs/heads/', '')}-${context.sha}\`\n\n` +
+                    `- **Artifact:** \`dist-${context.runId}-${context.runNumber}\`\n\n` +
                     `You can test this branch by using:\n` +
                     `\`\`\`yaml\n` +
                     `uses: Walsen/hugo-to-devto-action@${context.ref.replace('refs/heads/', '')}\n` +
