@@ -2,6 +2,35 @@ import * as core from '@actions/core';
 import * as fs from 'fs';
 import * as path from 'path';
 
+/**
+ * Convert Hugo mermaid shortcodes to mermaid.ink image URLs
+ * Hugo format: {{< mermaid >}} ... {{< /mermaid >}}
+ * Dev.to format: ![Mermaid Diagram](https://mermaid.ink/img/base64encodedcontent)
+ */
+function convertMermaidToImages(markdown: string): string {
+  // Match Hugo mermaid shortcodes: {{< mermaid >}} ... {{< /mermaid >}}
+  // Also handles optional HTML wrapper like <div style="...">
+  const mermaidRegex = /(?:<div[^>]*>\s*)?{{\s*<\s*mermaid\s*>\s*}}([\s\S]*?){{\s*<\s*\/mermaid\s*>\s*}}(?:\s*<\/div>)?/gi;
+  
+  let diagramCount = 0;
+  
+  return markdown.replace(mermaidRegex, (match, mermaidCode) => {
+    diagramCount++;
+    const trimmedCode = mermaidCode.trim();
+    
+    // Encode the mermaid code to base64 for mermaid.ink
+    const base64Code = Buffer.from(trimmedCode).toString('base64');
+    
+    // Use mermaid.ink service to render the diagram as an image
+    const imageUrl = `https://mermaid.ink/img/${base64Code}`;
+    
+    core.info(`   🎨 Converting mermaid diagram #${diagramCount} to image`);
+    
+    // Return markdown image syntax
+    return `![Mermaid Diagram](${imageUrl})`;
+  });
+}
+
 interface DevToArticle {
   title: string;
   published: boolean;
@@ -101,11 +130,14 @@ async function run(): Promise<void> {
       throw new Error('Title is required in frontmatter');
     }
 
+    // Convert Hugo mermaid shortcodes to images for Dev.to
+    const processedMarkdown = convertMermaidToImages(markdown);
+
     // Prepare dev.to article
     const article: DevToArticle = {
       title: frontmatter.title,
       published: !frontmatter.draft,
-      body_markdown: markdown,
+      body_markdown: processedMarkdown,
       canonical_url: canonicalUrl,
     };
 
