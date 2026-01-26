@@ -14,7 +14,7 @@ interface DevToArticle {
 }
 
 interface HugoFrontmatter {
-  title: string;
+  title?: string;
   description?: string;
   publishdate?: string;
   draft?: boolean;
@@ -96,6 +96,11 @@ async function run(): Promise<void> {
       ? frontmatter.canonicalURL 
       : `${baseUrl}/${lang}/posts/${slug}/`;
 
+    // Validate required fields
+    if (!frontmatter.title) {
+      throw new Error('Title is required in frontmatter');
+    }
+
     // Prepare dev.to article
     const article: DevToArticle = {
       title: frontmatter.title,
@@ -141,7 +146,7 @@ async function run(): Promise<void> {
       throw new Error(`Failed to publish: ${error}`);
     }
 
-    const result = await response.json();
+    const result = await response.json() as { url: string; id: number };
     core.info('✅ Published successfully!');
     core.info(`   URL: ${result.url}`);
     core.info(`   ID: ${result.id}`);

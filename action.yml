@@ -1,6 +1,6 @@
 name: 'Hugo to Dev.to Publisher'
 description: 'Publish Hugo blog posts to dev.to with frontmatter support'
-author: 'Your Name'
+author: 'Sergio D. Rodríguez Inclán'
 branding:
   icon: 'upload-cloud'
   color: 'blue'
