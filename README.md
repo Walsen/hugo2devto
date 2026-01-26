@@ -1,6 +1,6 @@
 # Publish to Dev.to GitHub Action
 
-[![Build and Package](https://github.com/your-username/hugo-to-devto-action/actions/workflows/build.yml/badge.svg)](https://github.com/your-username/hugo-to-devto-action/actions/workflows/build.yml)
+[![Build and Package](https://github.com/Walsen/hugo2devto/actions/workflows/build.yml/badge.svg)](https://github.com/Walsen/hugo2devto/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A GitHub Action to automatically publish Hugo blog posts (or any markdown files with frontmatter) to [dev.to](https://dev.to).
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Publish to Dev.to
-        uses: your-username/hugo-to-devto-action@v1
+        uses: Walsen/hugo-to-devto-action@v1
         with:
           api-key: ${{ secrets.DEVTO_API_KEY }}
           file-path: 'content/en/posts/my-post.md'
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Publish to Dev.to
-        uses: your-username/hugo-to-devto-action@v1
+        uses: Walsen/hugo-to-devto-action@v1
         with:
           api-key: ${{ secrets.DEVTO_API_KEY }}
           file-path: ${{ matrix.post }}
