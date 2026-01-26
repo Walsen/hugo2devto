@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'  # Only trigger on semantic version tags (v1.0.0, v1.1.0, etc.)
 
 jobs:
   release:
@@ -24,13 +24,15 @@ jobs:
       - name: Build action
         run: npm run build
       
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
       - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
           body: |
             ## Changes in this Release
             
@@ -39,10 +41,12 @@ jobs:
             ## Usage
             
             ```yaml
-            - uses: your-username/hugo-to-devto-action@${{ github.ref }}
+            - uses: Walsen/hugo-to-devto-action@v1
               with:
                 api-key: ${{ secrets.DEVTO_API_KEY }}
                 file-path: 'path/to/post.md'
             ```
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
