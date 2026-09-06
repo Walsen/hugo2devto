@@ -53,6 +53,36 @@ canonicalURL: ""
 | `publishdate` | - | Ignored (Dev.to uses its own timestamps) |
 | `toc` | - | Ignored (Hugo-specific) |
 | `math` | - | Ignored (Hugo-specific) |
+| `slug` | - | Used to build the canonical URL when present (overrides the filename-derived slug) |
+
+## Hugo Shortcode Handling
+
+Dev.to has no concept of Hugo shortcodes, and its Markdown sanitizer **strips `class` and
+`style` attributes** — so a blog's grid/masonry layout cannot be reproduced. Media always
+stacks full-width. The action therefore converts shortcodes to plain, portable Markdown:
+
+| Shortcode | Handling on Dev.to |
+|-----------|--------------------|
+| `mermaid` | Converted to a rendered image via `mermaid.ink` |
+| `gallery` / `gallery-item` | Converted to plain Markdown — see below. Layout attributes (`cols`) are dropped |
+| `adsense` | **Dropped** (ad slots are meaningless on Dev.to) |
+| everything else (`centered`, `table`, `code`, `button`, `repo`, `circle`, `math`, `github-sponsors-list`, …) | **Passed through and left visible**, and a build **warning** lists them. They will appear as literal text — nothing is silently deleted |
+
+### Gallery conversion
+
+`gallery-item` supports `src`, `caption`, `alt`, `poster`, `type` (and `cols`, which is dropped):
+
+- **Image** → `![alt](src)` followed by an italic `*caption*` line.
+- **Video** (`src` ending in `.mp4`/`.webm`/`.mov`/`.m4v`, or `type="video"`) →
+  `[![alt](poster)](src)` followed by `*caption — click the thumbnail to watch*`
+  (Dev.to does not support `<video>`, so a poster image linked to the file is used).
+
+`alt` falls back to `caption` when omitted. Captions with apostrophes and em dashes are
+preserved.
+
+> If you see a warning about unconverted shortcodes, either the content will render as literal
+> text on Dev.to (fix it in the source, or set an explicit `canonicalURL`/rewrite), or a new
+> converter is needed in this action.
 
 ## Hugo-Specific Features
 
@@ -82,8 +112,11 @@ canonicalURL: "https://..."    # Explicit URL - will be used
 ```
 
 The action auto-generates canonical URLs based on your blog structure:
-- Format: `{base-url}/{lang}/posts/{slug}/`
-- Example: `https://blog.walsen.website/en/posts/my-post/`
+- Format: `{base-url}[/{lang}]/{posts-path}/{slug}/`
+- The **default language** (`default-language` input, default `en`) has **no** language
+  segment, matching Hugo's `DefaultContentLanguage`.
+- Default-language example: `https://blog.walsen.website/posts/my-post/`
+- Other-language example: `https://blog.walsen.website/es/posts/mi-post/`
 
 ### Date/Time Values
 
@@ -148,20 +181,20 @@ tags: ["javascript", "webdev", "tutorial", "beginners"]
 
 ## File Structure
 
-The action detects language from your file path:
+The action detects language from the `content/<lang>/` segment of your file path:
 
 ```
 content/
 ├── en/
 │   └── posts/
-│       └── my-post.md          # English post
+│       └── my-post.md          # English post (default language)
 └── es/
     └── posts/
         └── mi-post.md          # Spanish post
 ```
 
-This affects the auto-generated canonical URL:
-- English: `{base-url}/en/posts/{slug}/`
+This affects the auto-generated canonical URL (assuming `default-language: en`):
+- English (default): `{base-url}/posts/{slug}/`  — **no** `/en/` segment
 - Spanish: `{base-url}/es/posts/{slug}/`
 
 ## Example Workflow for Hugo Blogs
@@ -252,8 +285,9 @@ title: "Your Post Title"
 
 The action generates canonical URLs based on:
 - Your `base-url` input
-- File path language detection (`/en/` or `/es/`)
-- Filename (converted to slug)
+- Language detected from the `content/<lang>/` path segment (no prefix for `default-language`)
+- The `posts-path` input (default `posts`)
+- An explicit `slug:` front matter field, or the filename converted to a slug
 
 To use a custom canonical URL:
 ```yaml
