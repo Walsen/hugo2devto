@@ -15,12 +15,14 @@ This action is based on the `publish-to-devto.ts` script from the [Walsen/weblog
 
 - 📝 Publishes markdown files with YAML frontmatter to dev.to
 - 🎨 **Full Hugo blog support** - Works seamlessly with Hugo frontmatter format
-- 🔗 Automatic canonical URL generation
+- ♻️ **Idempotent** - looks up an existing article by canonical URL (title as fallback) and **updates** it instead of creating a duplicate
+- 🖼️ **Hugo shortcode conversion** - `mermaid` → image, `gallery`/`gallery-item` → plain Markdown (images + video thumbnails), `adsense` dropped; anything unrecognised is left visible with a warning
+- 🔗 Correct canonical URL generation (no language prefix for the default language)
 - 🏷️ Tag support (up to 4 tags as per dev.to limits)
 - 📚 Series support
 - 🖼️ Main image/cover image support
 - ✅ Draft/published status control
-- 🌐 Multi-language support (auto-detects from file path)
+- 🌐 Multi-language support (auto-detects language from the `content/<lang>/` path segment)
 
 ## Usage
 
@@ -84,6 +86,8 @@ jobs:
 | `api-key` | Dev.to API key (get from https://dev.to/settings/extensions) | Yes | - |
 | `file-path` | Path to the markdown file to publish | Yes | - |
 | `base-url` | Base URL for canonical links | No | `https://blog.walsen.website` |
+| `default-language` | Default site language, which has **no** path prefix in canonical URLs (matches Hugo's `DefaultContentLanguage`) | No | `en` |
+| `posts-path` | Content section under which posts are served (canonical path segment) | No | `posts` |
 
 ## Outputs
 
@@ -91,6 +95,23 @@ jobs:
 |--------|-------------|
 | `article-url` | URL of the published article on dev.to |
 | `article-id` | ID of the published article on dev.to |
+| `action` | Whether the article was `created` or `updated` |
+
+## Idempotency
+
+Each run first fetches the account's own articles (`GET /articles/me/all`, including drafts)
+and looks for a match:
+
+1. exact `canonical_url` match (primary key), then
+2. exact `title` match (fallback, logged as a warning).
+
+If a match is found the article is **updated in place** (`PUT`); otherwise a new article is
+**created** (`POST`). This means re-running the workflow on an edited post updates the same
+article instead of creating a duplicate. The `action` output reports which path was taken.
+
+> Dev.to's API has **no DELETE for articles**, so duplicates created before this behaviour
+> existed must be removed manually in the Dev.to UI. Getting the canonical URL right (below)
+> is what makes matching reliable.
 
 ## Markdown Frontmatter Format
 
@@ -120,7 +141,15 @@ Your markdown content here...
 - `tags`: Comma-separated list of tags (max 4 will be used)
 - `series`: Name of the series this article belongs to
 - `canonicalURL`: Custom canonical URL (auto-generated if not provided)
+- `slug`: Explicit URL slug used to build the canonical URL (overrides the filename-derived slug)
 - `eyecatch`: Cover image URL (can be relative or absolute)
+
+> **Canonical URLs & slugs.** When `canonicalURL` is not set, the action builds it as
+> `<base-url>[/<lang>]/<posts-path>/<slug>/`, omitting the `/<lang>` segment for the
+> `default-language`. The slug comes from an explicit `slug:` field when present, otherwise
+> it is approximated from the filename the way Hugo's `urlize` does (lowercase, runs of
+> whitespace/hyphens collapsed to one hyphen). For unusual filenames, set `slug:` or
+> `canonicalURL:` explicitly — filename-derived slugs are a best-effort approximation.
 
 ## Setup
 

@@ -1,41 +1,32 @@
 #!/usr/bin/env node
 /**
- * Publish Hugo blog posts to dev.to
- * 
+ * Publish Hugo blog posts to dev.to (manual helper).
+ *
+ * Shares the same conversion + idempotency logic as the GitHub Action
+ * (`src/*`), so behaviour matches exactly.
+ *
  * Usage:
- *   npm install --save-dev @types/node gray-matter
  *   export DEVTO_API_KEY="your-api-key"
  *   npx tsx scripts/publish-to-devto.ts content/en/posts/my-post.md
+ *
+ * Optional env overrides:
+ *   BASE_URL          (default https://blog.walsen.website)
+ *   DEFAULT_LANGUAGE  (default en)
+ *   POSTS_PATH        (default posts)
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
+import { buildArticle, parsePost } from '../src/post';
+import { fetchMyArticles, matchArticle, publishArticle, type Logger } from '../src/devto';
 
-interface DevToArticle {
-  title: string;
-  published: boolean;
-  body_markdown: string;
-  tags?: string[];
-  series?: string;
-  canonical_url?: string;
-  description?: string;
-  main_image?: string;
-}
-
-interface HugoFrontmatter {
-  title: string;
-  description?: string;
-  publishdate?: string;
-  draft?: boolean;
-  tags?: string[];
-  series?: string;
-  canonicalURL?: string;
-  eyecatch?: string;
-}
+const logger: Logger = {
+  info: (msg) => console.log(msg),
+  warning: (msg) => console.warn(`⚠️  ${msg}`),
+};
 
 async function publishToDevTo(filePath: string) {
   const apiKey = process.env.DEVTO_API_KEY;
-  
+
   if (!apiKey) {
     console.error('❌ DEVTO_API_KEY environment variable not set');
     console.log('Get your API key from: https://dev.to/settings/extensions');
@@ -47,123 +38,56 @@ async function publishToDevTo(filePath: string) {
     process.exit(1);
   }
 
+  const baseUrl = process.env.BASE_URL || 'https://blog.walsen.website';
+  const defaultLanguage = process.env.DEFAULT_LANGUAGE || 'en';
+  const postsPath = process.env.POSTS_PATH || 'posts';
+
   const content = fs.readFileSync(filePath, 'utf-8');
-  
-  // Parse frontmatter manually (simple YAML parser)
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  
-  if (!frontmatterMatch) {
-    console.error('❌ Invalid frontmatter format');
+
+  let parsed;
+  try {
+    parsed = parsePost(content);
+  } catch (error) {
+    console.error(`❌ ${(error as Error).message}`);
     process.exit(1);
   }
 
-  const frontmatterText = frontmatterMatch[1];
-  const markdown = frontmatterMatch[2].trim();
-
-  // Parse YAML frontmatter
-  const frontmatter: HugoFrontmatter = {};
-  frontmatterText.split('\n').forEach(line => {
-    const match = line.match(/^(\w+):\s*(.*)$/);
-    if (match) {
-      const [, key, value] = match;
-      
-      // Handle different value types
-      let cleanValue = value.trim();
-      
-      // Remove quotes if present
-      if ((cleanValue.startsWith('"') && cleanValue.endsWith('"')) ||
-          (cleanValue.startsWith("'") && cleanValue.endsWith("'"))) {
-        cleanValue = cleanValue.slice(1, -1);
-      }
-      
-      // Skip empty values
-      if (cleanValue === '') {
-        return;
-      }
-      
-      // Parse specific fields
-      if (key === 'draft') {
-        frontmatter[key] = cleanValue === 'true';
-      } else if (key === 'tags') {
-        // Handle both array format and comma-separated
-        if (cleanValue.startsWith('[')) {
-          // Array format: ["tag1", "tag2"]
-          frontmatter[key] = cleanValue
-            .replace(/[\[\]]/g, '')
-            .split(',')
-            .map(t => t.trim().replace(/^["']|["']$/g, ''));
-        } else {
-          // Comma-separated: tag1, tag2
-          frontmatter[key] = cleanValue.split(',').map(t => t.trim());
-        }
-      } else if (['title', 'description', 'series', 'canonicalURL', 'eyecatch', 'publishdate'].includes(key)) {
-        (frontmatter as any)[key] = cleanValue;
-      }
-      // Ignore other fields like toc, math, etc.
-    }
-  });
-
-  // Build canonical URL if not set or empty
-  const baseUrl = 'https://blog.walsen.website';
-  const slug = path.basename(filePath, '.md').toLowerCase().replace(/\s+/g, '-');
-  const lang = filePath.includes('/en/') ? 'en' : 'es';
-  const canonicalUrl = (frontmatter.canonicalURL && frontmatter.canonicalURL.trim() !== '') 
-    ? frontmatter.canonicalURL 
-    : `${baseUrl}/${lang}/posts/${slug}/`;
-
-  // Prepare dev.to article
-  const article: DevToArticle = {
-    title: frontmatter.title,
-    published: !frontmatter.draft,
-    body_markdown: markdown,
-    canonical_url: canonicalUrl,
-  };
-
-  if (frontmatter.description) {
-    article.description = frontmatter.description;
+  let built;
+  try {
+    built = buildArticle(
+      parsed.frontmatter,
+      parsed.markdown,
+      { filePath, baseUrl, defaultLanguage, postsPath },
+      logger,
+    );
+  } catch (error) {
+    console.error(`❌ ${(error as Error).message}`);
+    process.exit(1);
   }
 
-  if (frontmatter.tags && frontmatter.tags.length > 0) {
-    article.tags = frontmatter.tags.slice(0, 4); // dev.to allows max 4 tags
-  }
-
-  if (frontmatter.series) {
-    article.series = frontmatter.series;
-  }
-
-  if (frontmatter.eyecatch) {
-    article.main_image = frontmatter.eyecatch.startsWith('http') 
-      ? frontmatter.eyecatch 
-      : `${baseUrl}${frontmatter.eyecatch}`;
-  }
-
-  console.log('📝 Publishing to dev.to...');
-  console.log(`   Title: ${article.title}`);
-  console.log(`   Status: ${article.published ? 'Published' : 'Draft'}`);
-  console.log(`   Canonical: ${article.canonical_url}`);
+  const { article, canonicalUrl, slug } = built;
 
   try {
-    const response = await fetch('https://dev.to/api/articles', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': apiKey,
-      },
-      body: JSON.stringify({ article }),
-    });
+    console.log('🔎 Looking up existing articles on Dev.to…');
+    const existing = await fetchMyArticles(apiKey, logger);
+    const match = matchArticle(existing, canonicalUrl, article.title, logger);
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('❌ Failed to publish:', error);
-      process.exit(1);
+    console.log(match ? '♻️  Updating existing Dev.to article…' : '📝 Publishing new article to Dev.to…');
+    console.log(`   Title: ${article.title}`);
+    console.log(`   Slug: ${slug}`);
+    console.log(`   Status: ${article.published ? 'Published' : 'Draft'}`);
+    console.log(`   Canonical: ${article.canonical_url}`);
+    if (match) {
+      console.log(`   Matched article ID: ${match.id}`);
     }
 
-    const result = await response.json();
-    console.log('✅ Published successfully!');
+    const result = await publishArticle(apiKey, article, match?.id, logger);
+    console.log(result.action === 'updated' ? '✅ Updated successfully!' : '✅ Published successfully!');
     console.log(`   URL: ${result.url}`);
     console.log(`   ID: ${result.id}`);
+    console.log(`   Action: ${result.action}`);
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error('❌ Error:', (error as Error).message);
     process.exit(1);
   }
 }

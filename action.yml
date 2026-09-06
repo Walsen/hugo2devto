@@ -16,12 +16,22 @@ inputs:
     description: 'Base URL for canonical links (default: https://blog.walsen.website)'
     required: false
     default: 'https://blog.walsen.website'
+  default-language:
+    description: 'Default site language, which has NO path prefix in canonical URLs (Hugo DefaultContentLanguage)'
+    required: false
+    default: 'en'
+  posts-path:
+    description: 'Content section under which posts are served (canonical path segment)'
+    required: false
+    default: 'posts'
 
 outputs:
   article-url:
     description: 'URL of the published article on dev.to'
   article-id:
     description: 'ID of the published article on dev.to'
+  action:
+    description: 'Whether the article was "created" or "updated"'
 
 runs:
   using: 'node20'

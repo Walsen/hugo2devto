@@ -25643,6 +25643,324 @@ module.exports = {
 
 /***/ }),
 
+/***/ 4568:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.VIDEO_EXT = void 0;
+exports.convertMermaidToImages = convertMermaidToImages;
+exports.convertGalleryToMarkdown = convertGalleryToMarkdown;
+exports.stripAdsense = stripAdsense;
+exports.findUnconvertedShortcodes = findUnconvertedShortcodes;
+exports.deriveSlug = deriveSlug;
+exports.detectLang = detectLang;
+exports.buildCanonicalUrl = buildCanonicalUrl;
+const path = __importStar(__nccwpck_require__(6928));
+/**
+ * Pure, dependency-free conversion helpers.
+ *
+ * These functions take strings and return strings (or plain data) with no
+ * side effects and no dependency on `@actions/core`, so they can be unit
+ * tested without a network or an Actions runtime. `src/index.ts` (the action)
+ * and `scripts/publish-to-devto.ts` (the manual helper) both consume them.
+ */
+exports.VIDEO_EXT = ['.mp4', '.webm', '.mov', '.m4v'];
+/**
+ * Convert Hugo mermaid shortcodes to mermaid.ink image URLs.
+ * Hugo format: {{< mermaid >}} ... {{< /mermaid >}}
+ * Dev.to format: ![Mermaid Diagram](https://mermaid.ink/img/base64encodedcontent)
+ */
+function convertMermaidToImages(markdown) {
+    // Match Hugo mermaid shortcodes, also handling an optional HTML wrapper div.
+    const mermaidRegex = /(?:<div[^>]*>\s*)?{{\s*<\s*mermaid\s*>\s*}}([\s\S]*?){{\s*<\s*\/mermaid\s*>\s*}}(?:\s*<\/div>)?/gi;
+    let count = 0;
+    const out = markdown.replace(mermaidRegex, (_match, mermaidCode) => {
+        count++;
+        const trimmedCode = mermaidCode.trim();
+        const base64Code = Buffer.from(trimmedCode).toString('base64');
+        return `![Mermaid Diagram](https://mermaid.ink/img/${base64Code})`;
+    });
+    return { markdown: out, count };
+}
+/** Extract a double-quoted attribute value from a shortcode line. */
+function attr(line, name) {
+    return line.match(new RegExp(`${name}="([^"]*)"`))?.[1];
+}
+/**
+ * Convert Hugo `{{< gallery >}}` blocks containing `{{< gallery-item ... >}}`
+ * entries into plain Markdown.
+ *
+ * Dev.to's sanitizer strips `class`/`style`, so no layout (grid/masonry) is
+ * possible — media always stacks full-width. The correct target is therefore
+ * one image per paragraph with an italic caption line beneath it.
+ *
+ * - image -> `![alt](src)` then `*caption*`
+ * - video (.mp4/.webm/.mov/.m4v or type="video") ->
+ *     `[![alt](poster)](src)` then `*caption — click the thumbnail to watch*`
+ * - the wrapper and `cols` are discarded (no layout control on Dev.to)
+ */
+function convertGalleryToMarkdown(markdown) {
+    const galleryRegex = /\{\{<\s*gallery[^>]*>\}\}\n([\s\S]*?)\{\{<\s*\/gallery\s*>\}\}\n?/g;
+    let galleries = 0;
+    let images = 0;
+    let videos = 0;
+    const out = markdown.replace(galleryRegex, (_match, inner) => {
+        galleries++;
+        const lines = [];
+        for (const raw of inner.trim().split('\n')) {
+            const line = raw.trim();
+            if (!line.startsWith('{{<'))
+                continue;
+            const src = attr(line, 'src');
+            if (!src)
+                continue;
+            const caption = attr(line, 'caption') ?? '';
+            const alt = attr(line, 'alt') ?? caption;
+            const poster = attr(line, 'poster');
+            const isVideo = attr(line, 'type') === 'video' ||
+                exports.VIDEO_EXT.some((ext) => src.toLowerCase().endsWith(ext));
+            if (isVideo) {
+                videos++;
+                lines.push(`[![${alt}](${poster ?? src})](${src})`);
+                const suffix = caption ? `${caption} — ` : '';
+                lines.push(`*${suffix}click the thumbnail to watch*`);
+            }
+            else {
+                images++;
+                lines.push(`![${alt}](${src})`);
+                if (caption) {
+                    lines.push(`*${caption}*`);
+                }
+            }
+            lines.push('');
+        }
+        return lines.join('\n').trimEnd() + '\n';
+    });
+    return { markdown: out, galleries, images, videos };
+}
+/**
+ * Drop ad shortcodes (e.g. `{{< adsense >}}`) outright — they have no meaning
+ * on Dev.to and would otherwise surface as literal text.
+ */
+function stripAdsense(markdown) {
+    // Paired form: {{< adsense >}} ... {{< /adsense >}}
+    const paired = /\{\{<\s*adsense[^>]*>\}\}[\s\S]*?\{\{<\s*\/adsense\s*>\}\}\n?/g;
+    // Self-closing / standalone form: {{< adsense ... >}}
+    const single = /\{\{<\s*adsense[^>]*>\}\}\n?/g;
+    return markdown.replace(paired, '').replace(single, '');
+}
+/**
+ * Return the distinct names of any Hugo shortcodes still present in the text.
+ * Used to warn (not delete) — a warning plus visible text is easier to debug
+ * than content silently vanishing.
+ */
+function findUnconvertedShortcodes(markdown) {
+    const matches = markdown.match(/\{\{<\s*([a-zA-Z0-9_/-]+)/g);
+    if (!matches)
+        return [];
+    const names = matches.map((m) => m.replace(/\{\{<\s*/, '').replace(/^\//, ''));
+    return [...new Set(names)];
+}
+/**
+ * Approximate Hugo's `urlize`: lowercase, collapse runs of whitespace AND
+ * hyphens to a single hyphen, and strip leading/trailing hyphens.
+ *
+ * This still an approximation — Hugo also honours `slug:`/`url:` front matter
+ * and has punctuation edge cases — so prefer an explicit `slug:` front matter
+ * field or an explicit `canonicalURL` when the filename is unusual.
+ */
+function deriveSlug(filePath) {
+    return path
+        .basename(filePath, '.md')
+        .toLowerCase()
+        .replace(/[\s-]+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+/**
+ * Detect the content language from the path. Hugo multilingual layouts live
+ * under `content/<lang>/...`, so match that segment rather than doing a naive
+ * substring test on the whole path. Falls back to `defaultLanguage` when no
+ * `content/<lang>/` segment is present.
+ */
+function detectLang(filePath, defaultLanguage) {
+    const normalized = filePath.replace(/\\/g, '/');
+    const match = normalized.match(/(?:^|\/)content\/([a-zA-Z][a-zA-Z-]*)\//);
+    return match ? match[1] : defaultLanguage;
+}
+/**
+ * Build the canonical URL.
+ *
+ * - An explicit (non-empty) `canonicalURL` front matter value always wins.
+ * - The default language has NO path prefix in Hugo (DefaultContentLanguage),
+ *   so `/posts/<slug>/` for the default language and `/<lang>/posts/<slug>/`
+ *   otherwise.
+ */
+function buildCanonicalUrl(opts) {
+    if (opts.explicit && opts.explicit.trim() !== '') {
+        return opts.explicit.trim();
+    }
+    const base = opts.baseUrl.replace(/\/+$/, '');
+    const prefix = opts.lang === opts.defaultLanguage ? '' : `/${opts.lang}`;
+    const postsPath = opts.postsPath.replace(/^\/+|\/+$/g, '');
+    return `${base}${prefix}/${postsPath}/${opts.slug}/`;
+}
+
+
+/***/ }),
+
+/***/ 1145:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+/**
+ * Dev.to (Forem) articles API helpers.
+ *
+ * Extracted so both the action and the manual script share ONE code path for
+ * lookup + create/update. A logger is injected so the same logic can emit via
+ * `@actions/core` (action) or `console` (script) without depending on either.
+ */
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.fetchMyArticles = fetchMyArticles;
+exports.matchArticle = matchArticle;
+exports.publishArticle = publishArticle;
+const API_BASE = 'https://dev.to/api';
+const MAX_RETRIES = 3;
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+/**
+ * fetch wrapper that retries on HTTP 429 (Forem rate-limits article writes),
+ * honouring `Retry-After` when present and otherwise backing off exponentially.
+ */
+async function fetchWithRetry(url, init, log) {
+    let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const response = await fetch(url, init);
+        if (response.status !== 429 || attempt >= MAX_RETRIES) {
+            return response;
+        }
+        attempt++;
+        const retryAfter = Number(response.headers.get('retry-after'));
+        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1000
+            : 2 ** attempt * 1000;
+        log.warning(`Rate limited by Dev.to (429). Retry ${attempt}/${MAX_RETRIES} in ${Math.round(waitMs / 1000)}s…`);
+        await sleep(waitMs);
+    }
+}
+/**
+ * Fetch ALL of the authenticated user's articles (published AND drafts),
+ * paginating until a short page is returned.
+ */
+async function fetchMyArticles(apiKey, log) {
+    const perPage = 1000;
+    const all = [];
+    let page = 1;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const url = `${API_BASE}/articles/me/all?per_page=${perPage}&page=${page}`;
+        const response = await fetchWithRetry(url, { method: 'GET', headers: { 'api-key': apiKey } }, log);
+        if (!response.ok) {
+            const body = await response.text();
+            throw new Error(`Failed to list existing articles (page ${page}): ${response.status} ${body}`);
+        }
+        const batch = (await response.json());
+        for (const a of batch) {
+            all.push({ id: a.id, title: a.title, canonical_url: a.canonical_url ?? null });
+        }
+        if (batch.length < perPage) {
+            break;
+        }
+        page++;
+    }
+    return all;
+}
+/**
+ * Find an existing article to update.
+ *
+ * Primary key is an exact `canonical_url` match (guarding against `null` on
+ * older articles). Falls back to an exact `title` match and logs loudly when
+ * it does, because a title-only match is weaker.
+ */
+function matchArticle(existing, canonicalUrl, title, log) {
+    if (canonicalUrl) {
+        const byCanonical = existing.find((a) => a.canonical_url != null && a.canonical_url === canonicalUrl);
+        if (byCanonical) {
+            return byCanonical;
+        }
+    }
+    const byTitle = existing.find((a) => a.title === title);
+    if (byTitle) {
+        log.warning(`No canonical_url match; falling back to an exact TITLE match for "${title}" ` +
+            `(article ${byTitle.id}). Verify this is correct — title matches are weaker than canonical matches.`);
+        return byTitle;
+    }
+    return undefined;
+}
+/**
+ * Create (POST) or update (PUT) an article. When `existingId` is provided the
+ * article is updated in place; otherwise a new one is created.
+ */
+async function publishArticle(apiKey, article, existingId, log) {
+    const isUpdate = existingId !== undefined;
+    const url = isUpdate ? `${API_BASE}/articles/${existingId}` : `${API_BASE}/articles`;
+    const method = isUpdate ? 'PUT' : 'POST';
+    const response = await fetchWithRetry(url, {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'api-key': apiKey,
+        },
+        body: JSON.stringify({ article }),
+    }, log);
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to ${isUpdate ? 'update' : 'create'} article: ${response.status} ${error}`);
+    }
+    const result = (await response.json());
+    return { url: result.url, id: result.id, action: isUpdate ? 'updated' : 'created' };
+}
+
+
+/***/ }),
+
 /***/ 9407:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -25684,141 +26002,48 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
 const fs = __importStar(__nccwpck_require__(9896));
-const path = __importStar(__nccwpck_require__(6928));
-/**
- * Convert Hugo mermaid shortcodes to mermaid.ink image URLs
- * Hugo format: {{< mermaid >}} ... {{< /mermaid >}}
- * Dev.to format: ![Mermaid Diagram](https://mermaid.ink/img/base64encodedcontent)
- */
-function convertMermaidToImages(markdown) {
-    // Match Hugo mermaid shortcodes: {{< mermaid >}} ... {{< /mermaid >}}
-    // Also handles optional HTML wrapper like <div style="...">
-    const mermaidRegex = /(?:<div[^>]*>\s*)?{{\s*<\s*mermaid\s*>\s*}}([\s\S]*?){{\s*<\s*\/mermaid\s*>\s*}}(?:\s*<\/div>)?/gi;
-    let diagramCount = 0;
-    return markdown.replace(mermaidRegex, (match, mermaidCode) => {
-        diagramCount++;
-        const trimmedCode = mermaidCode.trim();
-        // Encode the mermaid code to base64 for mermaid.ink
-        const base64Code = Buffer.from(trimmedCode).toString('base64');
-        // Use mermaid.ink service to render the diagram as an image
-        const imageUrl = `https://mermaid.ink/img/${base64Code}`;
-        core.info(`   🎨 Converting mermaid diagram #${diagramCount} to image`);
-        // Return markdown image syntax
-        return `![Mermaid Diagram](${imageUrl})`;
-    });
-}
+const post_1 = __nccwpck_require__(6661);
+const devto_1 = __nccwpck_require__(1145);
+const logger = {
+    info: (msg) => core.info(msg),
+    warning: (msg) => core.warning(msg),
+};
 async function run() {
     try {
         const apiKey = core.getInput('api-key', { required: true });
         const filePath = core.getInput('file-path', { required: true });
         const baseUrl = core.getInput('base-url') || 'https://blog.walsen.website';
+        const defaultLanguage = core.getInput('default-language') || 'en';
+        const postsPath = core.getInput('posts-path') || 'posts';
         if (!fs.existsSync(filePath)) {
             throw new Error(`File not found: ${filePath}`);
         }
         const content = fs.readFileSync(filePath, 'utf-8');
-        // Parse frontmatter manually (simple YAML parser)
-        const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-        if (!frontmatterMatch) {
-            throw new Error('Invalid frontmatter format');
-        }
-        const frontmatterText = frontmatterMatch[1];
-        const markdown = frontmatterMatch[2].trim();
-        // Parse YAML frontmatter
-        const frontmatter = {};
-        frontmatterText.split('\n').forEach(line => {
-            const match = line.match(/^(\w+):\s*(.*)$/);
-            if (match) {
-                const [, key, value] = match;
-                // Handle different value types
-                let cleanValue = value.trim();
-                // Remove quotes if present
-                if ((cleanValue.startsWith('"') && cleanValue.endsWith('"')) ||
-                    (cleanValue.startsWith("'") && cleanValue.endsWith("'"))) {
-                    cleanValue = cleanValue.slice(1, -1);
-                }
-                // Skip empty values
-                if (cleanValue === '') {
-                    return;
-                }
-                // Parse specific fields
-                if (key === 'draft') {
-                    frontmatter[key] = cleanValue === 'true';
-                }
-                else if (key === 'tags') {
-                    // Handle both array format and comma-separated
-                    if (cleanValue.startsWith('[')) {
-                        // Array format: ["tag1", "tag2"]
-                        frontmatter[key] = cleanValue
-                            .replace(/[\[\]]/g, '')
-                            .split(',')
-                            .map(t => t.trim().replace(/^["']|["']$/g, ''));
-                    }
-                    else {
-                        // Comma-separated: tag1, tag2
-                        frontmatter[key] = cleanValue.split(',').map(t => t.trim());
-                    }
-                }
-                else if (['title', 'description', 'series', 'canonicalURL', 'eyecatch', 'publishdate'].includes(key)) {
-                    frontmatter[key] = cleanValue;
-                }
-                // Ignore other fields like toc, math, etc.
-            }
-        });
-        // Build canonical URL if not set or empty
-        const slug = path.basename(filePath, '.md').toLowerCase().replace(/\s+/g, '-');
-        const lang = filePath.includes('/en/') ? 'en' : 'es';
-        const canonicalUrl = (frontmatter.canonicalURL && frontmatter.canonicalURL.trim() !== '')
-            ? frontmatter.canonicalURL
-            : `${baseUrl}/${lang}/posts/${slug}/`;
-        // Validate required fields
-        if (!frontmatter.title) {
-            throw new Error('Title is required in frontmatter');
-        }
-        // Convert Hugo mermaid shortcodes to images for Dev.to
-        const processedMarkdown = convertMermaidToImages(markdown);
-        // Prepare dev.to article
-        const article = {
-            title: frontmatter.title,
-            published: !frontmatter.draft,
-            body_markdown: processedMarkdown,
-            canonical_url: canonicalUrl,
-        };
-        if (frontmatter.description) {
-            article.description = frontmatter.description;
-        }
-        if (frontmatter.tags && frontmatter.tags.length > 0) {
-            article.tags = frontmatter.tags.slice(0, 4); // dev.to allows max 4 tags
-        }
-        if (frontmatter.series) {
-            article.series = frontmatter.series;
-        }
-        if (frontmatter.eyecatch) {
-            article.main_image = frontmatter.eyecatch.startsWith('http')
-                ? frontmatter.eyecatch
-                : `${baseUrl}${frontmatter.eyecatch}`;
-        }
-        core.info('📝 Publishing to dev.to...');
+        const { frontmatter, markdown } = (0, post_1.parsePost)(content);
+        const { article, canonicalUrl, slug } = (0, post_1.buildArticle)(frontmatter, markdown, { filePath, baseUrl, defaultLanguage, postsPath }, logger);
+        // Idempotency: look up an existing article and update it instead of
+        // creating a duplicate. Forem has no DELETE for articles, so getting the
+        // match right matters — canonical_url is the primary key, title the
+        // (logged) fallback.
+        core.info('🔎 Looking up existing articles on Dev.to…');
+        const existing = await (0, devto_1.fetchMyArticles)(apiKey, logger);
+        const match = (0, devto_1.matchArticle)(existing, canonicalUrl, article.title, logger);
+        core.info(match ? '♻️  Updating existing Dev.to article…' : '📝 Publishing new article to Dev.to…');
         core.info(`   Title: ${article.title}`);
+        core.info(`   Slug: ${slug}`);
         core.info(`   Status: ${article.published ? 'Published' : 'Draft'}`);
         core.info(`   Canonical: ${article.canonical_url}`);
-        const response = await fetch('https://dev.to/api/articles', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'api-key': apiKey,
-            },
-            body: JSON.stringify({ article }),
-        });
-        if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Failed to publish: ${error}`);
+        if (match) {
+            core.info(`   Matched article ID: ${match.id}`);
         }
-        const result = await response.json();
-        core.info('✅ Published successfully!');
+        const result = await (0, devto_1.publishArticle)(apiKey, article, match?.id, logger);
+        core.info(result.action === 'updated' ? '✅ Updated successfully!' : '✅ Published successfully!');
         core.info(`   URL: ${result.url}`);
         core.info(`   ID: ${result.id}`);
+        core.info(`   Action: ${result.action}`);
         core.setOutput('article-url', result.url);
         core.setOutput('article-id', result.id);
+        core.setOutput('action', result.action);
     }
     catch (error) {
         if (error instanceof Error) {
@@ -25830,6 +26055,128 @@ async function run() {
     }
 }
 run();
+
+
+/***/ }),
+
+/***/ 6661:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parsePost = parsePost;
+exports.convertBody = convertBody;
+exports.buildArticle = buildArticle;
+const convert_1 = __nccwpck_require__(4568);
+/** Parse a Hugo markdown file into its front matter and body. */
+function parsePost(content) {
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (!frontmatterMatch) {
+        throw new Error('Invalid frontmatter format');
+    }
+    const frontmatterText = frontmatterMatch[1];
+    const markdown = frontmatterMatch[2].trim();
+    const frontmatter = {};
+    frontmatterText.split('\n').forEach((line) => {
+        const match = line.match(/^(\w+):\s*(.*)$/);
+        if (!match)
+            return;
+        const [, key, value] = match;
+        let cleanValue = value.trim();
+        // Remove surrounding quotes.
+        if ((cleanValue.startsWith('"') && cleanValue.endsWith('"')) ||
+            (cleanValue.startsWith("'") && cleanValue.endsWith("'"))) {
+            cleanValue = cleanValue.slice(1, -1);
+        }
+        if (cleanValue === '')
+            return;
+        if (key === 'draft') {
+            frontmatter.draft = cleanValue === 'true';
+        }
+        else if (key === 'tags') {
+            if (cleanValue.startsWith('[')) {
+                frontmatter.tags = cleanValue
+                    .replace(/[\[\]]/g, '')
+                    .split(',')
+                    .map((t) => t.trim().replace(/^["']|["']$/g, ''))
+                    .filter((t) => t !== '');
+            }
+            else {
+                frontmatter.tags = cleanValue.split(',').map((t) => t.trim()).filter((t) => t !== '');
+            }
+        }
+        else if (['title', 'description', 'series', 'canonicalURL', 'eyecatch', 'publishdate', 'slug'].includes(key)) {
+            frontmatter[key] = cleanValue;
+        }
+        // Ignore other fields like toc, math, etc.
+    });
+    return { frontmatter, markdown };
+}
+/**
+ * Run every known converter over the body, then warn (never delete) about any
+ * shortcode left behind.
+ */
+function convertBody(markdown, log) {
+    const mermaid = (0, convert_1.convertMermaidToImages)(markdown);
+    if (mermaid.count > 0) {
+        log.info(`   🎨 Converted ${mermaid.count} mermaid diagram(s) to images`);
+    }
+    const gallery = (0, convert_1.convertGalleryToMarkdown)(mermaid.markdown);
+    if (gallery.galleries > 0) {
+        log.info(`   🖼️  Converted ${gallery.galleries} gallery block(s): ${gallery.images} image(s), ${gallery.videos} video(s)`);
+    }
+    let processed = (0, convert_1.stripAdsense)(gallery.markdown);
+    const leftover = (0, convert_1.findUnconvertedShortcodes)(processed);
+    if (leftover.length > 0) {
+        log.warning(`Unconverted Hugo shortcodes will appear as literal text on Dev.to: ${leftover.join(', ')}`);
+    }
+    return processed;
+}
+/**
+ * Assemble the Dev.to article payload from a parsed Hugo post. Returns the
+ * article plus the computed canonical URL and slug for logging.
+ */
+function buildArticle(frontmatter, markdown, opts, log) {
+    if (!frontmatter.title) {
+        throw new Error('Title is required in frontmatter');
+    }
+    // Prefer an explicit `slug:` front matter field; otherwise approximate Hugo's urlize.
+    const slug = frontmatter.slug && frontmatter.slug.trim() !== ''
+        ? frontmatter.slug.trim()
+        : (0, convert_1.deriveSlug)(opts.filePath);
+    const lang = (0, convert_1.detectLang)(opts.filePath, opts.defaultLanguage);
+    const canonicalUrl = (0, convert_1.buildCanonicalUrl)({
+        explicit: frontmatter.canonicalURL,
+        baseUrl: opts.baseUrl,
+        lang,
+        defaultLanguage: opts.defaultLanguage,
+        slug,
+        postsPath: opts.postsPath,
+    });
+    const body = convertBody(markdown, log);
+    const article = {
+        title: frontmatter.title,
+        published: !frontmatter.draft,
+        body_markdown: body,
+        canonical_url: canonicalUrl,
+    };
+    if (frontmatter.description) {
+        article.description = frontmatter.description;
+    }
+    if (frontmatter.tags && frontmatter.tags.length > 0) {
+        article.tags = frontmatter.tags.slice(0, 4); // dev.to allows max 4 tags
+    }
+    if (frontmatter.series) {
+        article.series = frontmatter.series;
+    }
+    if (frontmatter.eyecatch) {
+        article.main_image = frontmatter.eyecatch.startsWith('http')
+            ? frontmatter.eyecatch
+            : `${opts.baseUrl.replace(/\/+$/, '')}${frontmatter.eyecatch}`;
+    }
+    return { article, canonicalUrl, slug };
+}
 
 
 /***/ }),
