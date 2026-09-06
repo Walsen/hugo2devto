@@ -11,12 +11,13 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Only run if DEVTO_API_KEY is set
-    if: ${{ secrets.DEVTO_API_KEY != '' }}
+    env:
+      DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Create test markdown file
+        if: ${{ env.DEVTO_API_KEY != '' }}
         run: |
           mkdir -p test
           cat > test/sample-post.md << 'EOF'
@@ -39,6 +40,7 @@ jobs:
           EOF
       
       - name: Test action
+        if: ${{ env.DEVTO_API_KEY != '' }}
         uses: ./
         with:
           api-key: ${{ secrets.DEVTO_API_KEY }}
